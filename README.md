@@ -4,9 +4,7 @@ A CHIP-8 emulator written in Go using the [Ebitengine](https://ebiten.org/) game
 
 ## Demo
 
-https://github.com/Shbhom/chip8-emu/assets/asset/chip8_demo.mp4 (or locally at [asset/chip8_demo.mp4](asset/chip8_demo.mp4))
-
-<video src="asset/chip8_demo.mp4" width="600" controls></video>
+![CHIP-8 Emulator Demo](asset/chip8-demo.gif)
 
 ## Features
 - Fully functional CHIP-8 CPU instruction set
