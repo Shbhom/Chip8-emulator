@@ -5,22 +5,32 @@ import (
 	"log"
 	"time"
 
+	"github.com/Shbhom/chip8-emu/emulator/chip8"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
 type Game struct {
-	Chip8         *Chip8
-	CycleDelay    time.Duration
-	LastCycle     time.Time
-	LastTimerTick time.Time
-	keyMap        [16]ebiten.Key
-	Image         *ebiten.Image
-	Pixels        []byte
-	ScaleFactor   int
+	Chip8       *chip8.Chip8
+	Audio       *AudioManager
+	keyMap      [16]ebiten.Key
+	Image       *ebiten.Image
+	Pixels      []byte
+	ScaleFactor int
+	LastUpdate  time.Time
+
+	CPUAccumulator   time.Duration
+	TimerAccumulator time.Duration
+
+	CPUStep   time.Duration
+	TimerStep time.Duration
 }
 
-func NewGame(fileName string, cd time.Duration, scale int) *Game {
-	c8 := NewChip8()
+func NewGame(fileName string, cpuhz, scale int) *Game {
+	c8 := chip8.NewChip8()
+	audioMan, err := NewAudioManager()
+	if err != nil {
+		log.Fatal(fmt.Errorf("Error while generating audio manager: %w", err))
+	}
 	if err := c8.ReadRom(fileName); err != nil {
 		log.Fatal(fmt.Errorf("Error while loading game rom: %w", err))
 	}
@@ -44,17 +54,22 @@ func NewGame(fileName string, cd time.Duration, scale int) *Game {
 	keyMap[0xB] = ebiten.KeyC
 	keyMap[0xF] = ebiten.KeyV
 
-	img := ebiten.NewImage(int(VIDEO_WIDTH), int(VIDEO_HEIGHT))
+	img := ebiten.NewImage(int(chip8.VIDEO_WIDTH), int(chip8.VIDEO_HEIGHT))
+
+	if cpuhz <= 0 {
+		log.Fatal("CPU frequency must be greater than zero")
+	}
 
 	return &Game{
-		Chip8:         c8,
-		CycleDelay:    cd,
-		LastCycle:     time.Now(),
-		LastTimerTick: time.Now(),
-		keyMap:        keyMap,
-		Image:         img,
-		Pixels:        make([]byte, VIDEO_WIDTH*VIDEO_HEIGHT*4), // as each pixel requires 4 Bytes each for R,G,B, A
-		ScaleFactor:   scale,
+		Chip8:       c8,
+		Audio:       audioMan,
+		LastUpdate:  time.Now(),
+		CPUStep:     time.Second / time.Duration(cpuhz),
+		keyMap:      keyMap,
+		Image:       img,
+		Pixels:      make([]byte, chip8.VIDEO_WIDTH*chip8.VIDEO_HEIGHT*4), // as each pixel requires 4 Bytes each for R,G,B, A
+		ScaleFactor: scale,
+		TimerStep:   time.Second / 60,
 	}
 }
 
@@ -72,19 +87,27 @@ func (g *Game) Update() error {
 		}
 	}
 
-	if time.Since(g.LastCycle) >= g.CycleDelay {
-		g.LastCycle = time.Now()
-		for i := 0; i < 10; i++ {
-			g.Chip8.Cycle()
-		}
+	now := time.Now()
+	elapsed := now.Sub(g.LastUpdate)
+	if elapsed > 100*time.Millisecond {
+		elapsed = 100 * time.Millisecond
+	}
+	g.LastUpdate = now
+
+	g.CPUAccumulator += elapsed
+	g.TimerAccumulator += elapsed
+
+	for g.CPUAccumulator >= g.CPUStep {
+		g.Chip8.Cycle()
+		g.CPUAccumulator -= g.CPUStep
 	}
 
-	const timerFrequency = time.Second / 60
-
-	if time.Since(g.LastTimerTick) >= timerFrequency {
-		g.LastTimerTick = time.Now()
+	for g.TimerAccumulator >= g.TimerStep {
 		g.Chip8.TickTimers()
+		g.TimerAccumulator -= g.TimerStep
 	}
+
+	g.Audio.Update(g.Chip8.IsBuzzing())
 	return nil
 }
 
@@ -110,5 +133,5 @@ func (g *Game) Draw(screen *ebiten.Image) {
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
-	return int(VIDEO_WIDTH), int(VIDEO_HEIGHT)
+	return int(chip8.VIDEO_WIDTH), int(chip8.VIDEO_HEIGHT)
 }
